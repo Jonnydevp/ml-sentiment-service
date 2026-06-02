@@ -1,11 +1,11 @@
 # Sentiment Analysis ML Service
 
 ML-сервис для анализа тональности текста (POSITIVE / NEGATIVE) на основе модели
-DistilBERT (`distilbert-base-uncased-finetuned-sst-2-english`, HuggingFace).
+DistilBERT (`distilbert-base-uncased-finetuned-sst-2-english`, HuggingFace)
 
 Проект демонстрирует продакшн-архитектуру ML-сервиса: асинхронный API, очередь
-задач, реверс-прокси, БД с миграциями, мониторинг здоровья и отказоустойчивость —
-всё в Docker Compose, запуск одной командой.
+задач, реверс-прокси, БД с миграциями, мониторинг здоровья и отказоустойчивость -
+все в Docker Compose, запуск одной командой.
 
 ## Архитектура
 
