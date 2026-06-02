@@ -35,7 +35,7 @@ DistilBERT (`distilbert-base-uncased-finetuned-sst-2-english`, HuggingFace).
 
 ```bash
 # 1. Создать .env из примера
-cp env.example .env
+cp .env.example .env
 
 # 2. Поднять все сервисы одной командой
 docker compose up --build -d
@@ -126,7 +126,7 @@ curl http://localhost/api/health
 ```
 ml-sentiment-service/
 ├── docker-compose.yml          # Оркестрация: сети, volumes, healthchecks
-├── env.example                 # Шаблон переменных окружения
+├── .env.example                # Шаблон переменных окружения
 ├── nginx/nginx.conf            # Reverse proxy + rate limiting
 ├── backend/
 │   ├── Dockerfile              # uv + кэш слоёв + torch CPU
