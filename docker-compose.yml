@@ -1,0 +1,175 @@
+# Оркестрация в Docker Compose
+services:
+  # --- Инфраструктура ---
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentiment_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentiment_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-sentiment_db}
+    # Управление постоянством данных
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend_net
+    # Compose Healthcheck
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-sentiment_user}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    # Управление постоянством данных
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend_net
+    # Compose Healthcheck
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # --- Backend ---
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentiment_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentiment_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-sentiment_db}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MODEL_NAME: ${MODEL_NAME:-distilbert-base-uncased-finetuned-sst-2-english}
+      MODEL_MAX_LENGTH: ${MODEL_MAX_LENGTH:-512}
+      HF_HOME: /app/model_cache
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-sentiment_user}:${POSTGRES_PASSWORD:-sentiment_pass}@postgres:5432/${POSTGRES_DB:-sentiment_db}
+    # Управление постоянством данных — веса модели
+    volumes:
+      - model_cache:/app/model_cache
+    networks:
+      - frontend_net
+      - backend_net
+    # Порядок запуска — Умный depends_on
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Compose Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health', timeout=5)"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 120s
+    # Graceful Shutdown
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # Асинхронная очередь задач — Celery Worker
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A app.workers.celery_app:celery_app worker --loglevel=info --concurrency=2
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-sentiment_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentiment_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-sentiment_db}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      MODEL_NAME: ${MODEL_NAME:-distilbert-base-uncased-finetuned-sst-2-english}
+      MODEL_MAX_LENGTH: ${MODEL_MAX_LENGTH:-512}
+      HF_HOME: /app/model_cache
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-sentiment_user}:${POSTGRES_PASSWORD:-sentiment_pass}@postgres:5432/${POSTGRES_DB:-sentiment_db}
+    volumes:
+      - model_cache:/app/model_cache
+    networks:
+      - backend_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Graceful Shutdown
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  # --- Frontend ---
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      API_URL: http://backend:8000
+    networks:
+      - frontend_net
+    # Порядок запуска
+    depends_on:
+      backend:
+        condition: service_started
+    # Compose Healthcheck
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8501/_stcore/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  # --- Reverse Proxy ---
+
+  # Единая точка входа
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - frontend_net
+    # Порядок запуска
+    depends_on:
+      frontend:
+        condition: service_started
+      backend:
+        condition: service_started
+    # Compose Healthcheck
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+# Управление постоянством данных
+volumes:
+  postgres_data:
+  redis_data:
+  model_cache:
+
+# Разделение сетей (Networks)
+networks:
+  frontend_net:
+    driver: bridge
+  backend_net:
+    driver: bridge

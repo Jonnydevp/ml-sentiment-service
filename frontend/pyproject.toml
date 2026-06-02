@@ -1,0 +1,11 @@
+[project]
+name = "sentiment-frontend"
+version = "1.0.0"
+description = "Streamlit UI for Sentiment Analysis"
+requires-python = ">=3.11"
+dependencies = [
+    "streamlit>=1.38.0",
+    "httpx>=0.27.0",
+    "plotly>=5.20.0",
+    "pandas>=2.2.0",
+]
